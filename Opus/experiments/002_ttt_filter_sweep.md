@@ -24,44 +24,29 @@ All other hyperparameters held at PR #1493 SOTA values. Only `TTT_PARAM_FILTER` 
 
 ## Code
 
-The patched script is `Opus/code/train_gpt_v1.py`. Same env-var surface as the SOTA, plus `TTT_PARAM_FILTER` (default `all`). To run only TTT on a saved checkpoint, point the script's `train_and_eval` at a pre-quantized artifact — see `Opus/scripts/run_ttt_only.sh`.
+The patched script is `Opus/code/train_gpt_v1.py`. Same env-var surface as the SOTA plus:
+- `TTT_PARAM_FILTER` (default `all`) — primary knob
+- `EVAL_ONLY` (default `0`) — skip training, deserialize checkpoint, eval only
+- `LOAD_CHECKPOINT` (default `final_model.int6.ptz`) — explicit checkpoint path
+- `TTT_MOMENTUM_RESET`, `TTT_WD`, `TTT_GRAD_CLIP`, `TTT_LR_OFFSET`, `TTT_SCHEDULE` — orthogonal TTT knobs
+
+All defaults match PR #1493 byte-for-byte.
 
 ## Commands
 
 ```bash
-# Day-1 checkpoint mounted at $CKPT
+# Day-1 checkpoint copied to local $CKPT
 export CKPT=/workspace/artifacts/seed42.int6.ptz
 
 for FILTER in all scales scales+embed last_n_layers:3 attn_only mlp_only; do
   TAG=${FILTER//:/_}; TAG=${TAG//+/_}
-  TTT_ENABLED=1 TTT_PARAM_FILTER=$FILTER \
-    SEED=42 \
-    LOAD_CHECKPOINT=$CKPT \
+  EVAL_ONLY=1 TTT_ENABLED=1 TTT_PARAM_FILTER=$FILTER \
+    SEED=42 LOAD_CHECKPOINT=$CKPT \
     RUN_ID=opus_e002_${TAG} \
     torchrun --standalone --nproc_per_node=2 \
       Opus/code/train_gpt_v1.py 2>&1 | tee Opus/experiments/logs/002_${TAG}.log
 done
 ```
-
-(Note: `LOAD_CHECKPOINT` env var doesn't exist yet in `train_gpt_v1.py` — needs adding to the script as part of Day 1 setup. See "Day 1 follow-up" below.)
-
-## Day 1 follow-up — checkpoint loading
-
-The current SOTA always trains from scratch. To run TTT-only experiments cheaply, we need to short-circuit `train_and_eval` to skip training when a checkpoint is provided:
-
-```python
-# In train_and_eval, near the top:
-if os.environ.get('LOAD_CHECKPOINT'):
-    h.quantized_model_path = os.environ['LOAD_CHECKPOINT']
-    eval_model = deserialize(h, device)
-    # ... run sliding + TTT eval directly, skip train_model entirely
-else:
-    base_model, compiled_model = train_model(h, device, val_data)
-    serialize(h, base_model, Path(__file__).read_text())
-    eval_model = deserialize(h, device)
-```
-
-Add this after experiment 001 confirms reproduction.
 
 ## Result
 

@@ -31,7 +31,8 @@ Opus/
 
 | Date | Phase | Status |
 |------|-------|--------|
-| 2026-04-27 | Pre-flight (CPU only) | ✅ SOTA decoded, selective-TTT patch written and locally validated, all 6 experiments pre-specified, pod setup + repro scripts staged. **Ready for GPU.** |
+| 2026-04-27 | Pre-flight (CPU only) | ✅ SOTA decoded, selective-TTT patch written and locally validated, 6 experiments pre-specified, pod setup + repro scripts staged. |
+| 2026-04-27 | Pre-flight extended | ✅ Records-folder mined (selective TTT confirmed novel); EVAL_ONLY + 5 orthogonal TTT knobs added to v1.py; defaults are byte-for-byte SOTA; AST-clean on Python 3.12/3.13; Vultr 16-vCPU VPS bootstrapped with torch 2.9.1+cpu and full filter-validator green; Exp 006 (2nd-order knobs) and Exp 007 (stretch ideas) pre-spec'd. |
 | 2026-04-27 | Day 1 reproduction | ⏳ Awaiting RunPod 1×H100 access |
 
 ## How to read this folder

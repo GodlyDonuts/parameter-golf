@@ -4,6 +4,34 @@ Audit trail for non-obvious calls. Each entry: date, decision, alternatives cons
 
 ---
 
+## 2026-04-27 — Selective-TTT angle confirmed novel; layered TTT-knob sweep added
+
+**Decision:** Stay on the selective-TTT primary hypothesis, add `EVAL_ONLY` mode + 5 second-order TTT knobs (momentum reset, wd, grad clip, lr offset, schedule) to `train_gpt_v1.py`, and add Exp 006 (2nd-order knob sweep) and Exp 007 (Day-3 stretch ideas).
+
+**Inputs to this decision:**
+- Explore-agent recon over `records/` (32 records + 4 non-records). Headline: **no submission has ever attempted selective-parameter TTT**. The only freeze-related ablation was whole-layer freezing in 2026-03-23 (`freeze=2` cost −0.0004 nats vs `freeze=0`), which is coarse-grained and unrelated to the ~38K-float fp32 control surface.
+- TTT lineage gains are −0.0015 to −0.003 nats reliably. Selective TTT needs to extract another −0.005 to clear the bar.
+- The leaderboard has never swept `TTT_EPOCHS` above 3, never tested momentum reset, never tested weight decay during TTT, never compared cosine vs constant vs linear schedules.
+- Code-budget after the v1 patch: +528 lzma bytes vs SOTA. Worst-seed artifact slack drops from 6,768 → 6,240 bytes — still positive.
+
+**Alternatives considered:**
+- (A) Add BigramHash + selective TTT — interesting but adds another ~3KB compressed; we're already at +528 bytes and only ~6K slack on the worst seed.
+- (B) Pivot now to mixed-bit GPTQ — premature; selective-TTT is unproven but cheap to test (eval-only).
+- (C) Pursue stretch architecture (MLA / MTP) — weeks of work; 3 days remaining.
+- (D) Stay on plan, layer in 2nd-order TTT knobs as orthogonal one-knob-at-a-time sweeps. **← chosen**
+
+**Reasoning:** The primary angle is novel and cheap to validate; doubling down with orthogonal knob sweeps maximizes the chance of finding the −0.005 we need. Each new knob defaults to no-op so byte-for-byte SOTA reproduction is unchanged.
+
+---
+
+## 2026-04-27 — EVAL_ONLY mode + LOAD_CHECKPOINT support
+
+**Decision:** Add an `EVAL_ONLY=1` env var that skips `train_model + serialize` and goes straight to `deserialize → sliding eval → TTT eval`, plus a `LOAD_CHECKPOINT` env var that overrides `quantized_model_path`.
+
+**Reasoning:** Day-2 TTT sweeps need to iterate ~30+ configs. A full 600s train + ~500s eval cycle is $4–5 per cell on 8×H100. Eval-only on a saved Day-1 artifact is ~$1 per cell. Borrowed pattern from Claude/scripts/eval_only_patch.md (sibling agent's converging design).
+
+---
+
 ## 2026-04-27 — Build on PR #1493 SOTA, not on `train_antigravity.py`
 
 **Decision:** Use the SOTA file at `records/track_10min_16mb/2026-04-09_SP8192_3LayerRecur_ParResid_QK525_LegalTTT/train_gpt.py` as the base for the leaderboard push. Treat `train_antigravity.py` as a separate, parallel non-record submission.
