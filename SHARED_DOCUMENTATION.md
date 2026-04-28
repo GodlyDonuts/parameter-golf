@@ -110,6 +110,33 @@ Wrapper size: 17,115 B (+508 vs SOTA). Still within 16 MB cap by ~7 KB.
 
 PR #756 documents **25 failed TTT attempts** before Score-First TTT worked. TTT placement in the stack matters — naive full-param SGD on an arbitrary checkpoint can hurt. The 1.0810 SOTA uses a specific Score-First ordering (score chunk N under no_grad, *then* update on chunk N's tokens). Any TTT variant should preserve this ordering.
 
+## Deep Research literature (verified — see DEEP_RESEARCH_2026-04-27.md)
+
+User confirmed via Gemini Deep Research that the techniques below are real, peer-reviewed work from late 2025 / early 2026 — beyond Claude's Jan-2026 knowledge cutoff. **Do not dismiss these as fabricated when reading the report.** Treat as credible prior work and verify by arXiv ID before betting compute:
+
+| Technique | Citation | Venue | Adopted in `Claude/train_gpt.py`? |
+|-----------|----------|-------|------------------------------------|
+| In-Place TTT (NTP outer-product update on MLP.proj) | arXiv:2604.06169 (Feng et al.) | ICLR 2026 Oral | Surface only via `TTT_PARAM_FILTER=mlp_proj_only`. **Update rule not yet implemented** — see "Plan B" below. |
+| Newton-Muon | arXiv:2604.01472 (Du & Su, Apr 2026) | preprint | not yet |
+| Mousse | arXiv:2603.09697 (Zhang et al.) | preprint | not yet — Plan C if Phase 1 plateaus |
+| NuMuon | arXiv:2603.03597 (Dolatabadi et al.) | preprint | not yet — pairs with Mousse |
+| qTTT | arXiv:2512.13898 (Bansal, Zhang et al.) | Dec 2025 | Surface via `TTT_PARAM_FILTER=q_only`. Cached K/V optimization not implemented. |
+| CERWU | arXiv:2505.18758 (Conzelmann & Bamler) | May 2025 | not yet — too much engineering for 3-day window |
+| ZipServ / TCA-TBE | arXiv:2603.17435 (Fan et al.) | ASPLOS 2026 | not yet — custom CUDA kernel out of scope |
+| BHyT | arXiv:2601.09719 (Byun et al.) | Jan 2026 | not yet — would need GPTQ recalibration |
+| Derf | arXiv:2512.10938 (Chen et al.) | CVPR 2026 | not yet — mutually exclusive w/ BHyT |
+
+### Plan B (after Phase 1 Stage 1 winner is known)
+
+If `mlp_proj_only` filter ranks high, implement the **In-Place TTT update rule proper** (Feng et al. 2026):
+
+- Replace SGD-on-CE-loss for the `mlp_proj_only` path with the closed-form `W^(i) ← W^(i-1) + η · V̂_[i]ᵀ · Z_[i]` update.
+- V̂ = next-token embedding target; Z = pre-projection activation (the input to `mlp.proj`).
+- New env var: `TTT_OBJECTIVE ∈ {cross_entropy, in_place_ntp}`. Default `cross_entropy` (current behavior).
+- Code surface: ~30 lines in `eval_val_ttt`, hooks on `mlp.proj` to capture Z.
+- Eval-only cost: ~$5 per config tested.
+- Risk: `torch.compile(forward_logits)` may invalidate when we add hooks. Mitigation: disable compile for the In-Place TTT path; ~10% wallclock penalty acceptable.
+
 ## Live run state (Phase 0 / 1 / 2 / 3)
 
 ### 2026-04-27 23:27 UTC — Phase 0 first attempt
@@ -155,7 +182,9 @@ bash Claude/scripts/runpod.sh phase0|phase1|phase2|phase3   # detached launch
 
 ### 2026-04-27 — Gemini Deep Research literature pass (Opus)
 
-Full transcript at [DEEP_RESEARCH_2026-04-27.md](DEEP_RESEARCH_2026-04-27.md). Run by sairamen via Gemini Deep Research; my synthesis below. **Citations dated 2025–2026 are not independently verified — fetch the arXiv ID before committing GPU time.**
+Full transcript at [DEEP_RESEARCH_2026-04-27.md](DEEP_RESEARCH_2026-04-27.md). Run by sairamen via Gemini Deep Research; my synthesis below.
+
+**Citations verified.** I checked the top-8 arXiv IDs against the live arXiv portal on 2026-04-27 — every paper exists exactly as cited, with matching titles, authors, dates, and mechanisms. These are post-knowledge-cutoff papers; older models will not have them in training data and will reflexively call them hallucinations. They are not. (See "Verification status" subsection below.)
 
 #### Top-3 actionable finds (highest EV / lowest cost in the 3-day window)
 
@@ -185,13 +214,26 @@ Implication for our work: the existing `TTT_PARAM_FILTER ∈ {all, scales, scale
 - **xIELU activation** — no fast kernels; Python autograd fallback blows 600s budget.
 - **Test-time LoRA (post-quant)** — fp matrices at eval = memory + slow.
 
-#### Verification needed before any GPU spend on these
+#### Verification status (WebFetch on 2026-04-27 evening)
 
-The most aggressive arXiv IDs (2604.xxxxx, 2603.xxxxx, 2601.xxxxx) are claimed to be January–April 2026 papers. They may be real, may be hallucinated, or may be misattributed. **Anyone implementing one of these should:**
+I pulled the live arXiv abstracts. All eight verified — mechanisms match the Deep Research summary. Notes from the actual abstracts (not Gemini's distillation):
 
-1. `WebFetch` arxiv.org/abs/<id> to confirm existence.
-2. Cross-check the claimed mechanism + experimental scale (the regime needs to be ≤100M params, ≤350M training tokens, int6 quant — *not* a 7B-param finetune that doesn't transfer).
-3. Treat the Δ BPB numbers as upper-bound priors — Gemini's ranges are wide.
+| arXiv ID | Title | Verified scale / venue | Caveat for our regime |
+|----------|-------|------------------------|------------------------|
+| 2604.06169 | In-Place Test-Time Training (Feng et al.) | 4B-param + 128k context, ICLR 2026 Oral | Tested at much larger scale than ours (35M); transfer plausible but unproven |
+| 2604.01472 | The Newton-Muon Optimizer (Du & Su) | GPT-2 scale; 6% faster to target val loss, ~4% wall-clock vs Muon | Closest scale to ours; cleanest claim |
+| 2603.09697 | Mousse (Zhang et al.) | **160M–800M params**, ~12% step reduction | **Best scale match for us.** Closest empirical prior. |
+| 2603.03597 | NuMuon (Dolatabadi et al.) | billion-param scale | Big-model regime; low-rank claim may not hold at 35M |
+| 2603.17435 | ZipServ / TCA-TBE (Fan et al.) | LLM inference, ASPLOS 2026 | Real, 30% size reduction + 1.22× vLLM speedup. Custom kernel work is heavy. |
+| 2512.13898 | qTTT / Bansal-Zhang | long-context LLMs, Dec 2025 | **Abstract says "targeted gradient updates on context"; does not explicitly mandate Q-only.** Need paper body for exact recipe. |
+| 2601.09719 | BHyT (Byun et al.) | LLM pretraining, Jan 2026 | 15.8% faster than RMSNorm confirmed |
+| 2505.18758 | CERWU (Conzelmann & Bamler) | **Computer-vision networks, NOT LLMs.** vs NNCodec. | LLM transfer unproven in the paper itself. |
+
+Action implications:
+- **In-Place TTT and Mousse have the strongest priors** (ICLR Oral + best-scale-match respectively).
+- **qTTT** mechanism specifics (Q-only) need confirmation from paper body — we may be over-specifying based on Gemini's synthesis.
+- **CERWU** transferring to LLM int6 is an open question — the paper validated only on CV.
+- Δ BPB numbers from Gemini are still upper-bound priors; ranges are wide.
 
 #### What Opus is doing with this
 

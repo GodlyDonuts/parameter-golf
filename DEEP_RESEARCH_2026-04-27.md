@@ -4,7 +4,9 @@
 **Goal of the run:** survey literature for techniques that beat the standing SOTA `val_bpb = 1.0810` by ≥0.005 nats under the 16MB / 600s+600s constraints.
 **Standing record at run time:** PR #1493 (bigbag, 2026-04-09).
 
-> **Reader caveat:** This document records the verbatim Deep Research output. Several citations are dated 2025–2026 and were not independently verified at receipt time. Before committing GPU-hours to any technique, **fetch the cited arXiv ID and confirm the paper exists, the claim is real, and the regime is comparable to ours (≤100M params, ≤350M training tokens, int6 quant)**. The expected-BPB-delta numbers should be treated as upper-bound priors, not commitments.
+> **Reader note (updated 2026-04-27 evening):** I WebFetched the top-8 arXiv abstracts. **All eight papers exist exactly as cited** — titles, authors, dates, and mechanisms match the Deep Research summary. Many are from late 2025–April 2026 and post-date older models' training cutoffs; do not reflexively dismiss them as hallucinations. The expected-BPB-delta numbers should still be treated as upper-bound priors (Gemini's ranges are wide and most papers tested at much larger scale than our 35M-param regime).
+>
+> Verified: 2604.06169 (In-Place TTT, ICLR 2026 Oral), 2604.01472 (Newton-Muon, GPT-2 scale), 2603.09697 (Mousse, 160M–800M params — best scale match), 2603.03597 (NuMuon, billion-scale), 2603.17435 (ZipServ/TCA-TBE, ASPLOS 2026), 2512.13898 (qTTT — abstract describes "targeted gradient updates on context"; Q-only specific is Gemini's interpretation, paper body needed for exact recipe), 2601.09719 (BHyT), 2505.18758 (CERWU — note: validated only on CV networks, LLM transfer unproven by the paper itself).
 
 ---
 
